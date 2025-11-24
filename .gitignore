@@ -1,0 +1,52 @@
+# 대용량 파일
+*.h5
+*.keras
+*.pkl
+*.pth
+*.ckpt
+
+# 데이터 파일
+data/
+*.csv
+*.json
+
+# 로그 및 결과
+logs/
+results/*.png
+train_output.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 환경 변수
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# 모델 체크포인트 (너무 큰 경우)
+models/checkpoints/*.keras
+
+# TensorFlow
+tensorboard/

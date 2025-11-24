@@ -1,0 +1,26 @@
+# 주식 종목 설정
+stocks:
+  - code: "005930"
+    name: "삼성전자"
+  - code: "035420"
+    name: "네이버"
+  - code: "005380"
+    name: "현대차"
+
+# 데이터 수집 설정
+data_collection:
+  interval: "5"  # 5분봉
+  period_days: 365  # 1년치 데이터
+  
+# 데이터 저장 경로
+data_path:
+  raw_data: "./data/raw"
+  processed_data: "./data/processed"
+  
+# API 설정
+api:
+  base_url_real: "https://openapi.koreainvestment.com:9443"
+  base_url_mock: "https://openapivts.koreainvestment.com:29443"
+  rate_limit_per_second: 20
+
+
