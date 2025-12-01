@@ -45,6 +45,36 @@ class SequenceGenerator:
             y.append(data[target_idx, target_col_idx])
         
         return np.array(X), np.array(y)
+
+    def create_sequences_with_labels(
+        self,
+        data: np.ndarray,
+        labels: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        분류용 시퀀스 데이터 생성
+
+        Args:
+            data: 입력 데이터 (samples, features)
+            labels: 각 시점의 타겟 레이블 (samples,)
+
+        Returns:
+            X: (num_sequences, sequence_length, features)
+            y: (num_sequences,)
+        """
+        X, y = [], []
+
+        if len(data) != len(labels):
+            raise ValueError("data와 labels의 길이가 다릅니다.")
+
+        max_start = len(data) - self.sequence_length + 1
+
+        for i in range(max_start):
+            X.append(data[i : i + self.sequence_length])
+            # 시퀀스의 마지막 시점 레이블 사용
+            y.append(labels[i + self.sequence_length - 1])
+
+        return np.array(X), np.array(y)
     
     def prepare_data_from_csv(
         self,
