@@ -52,6 +52,7 @@ class SequenceGenerator:
         labels: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
+<<<<<<< Updated upstream
         분류용 시퀀스 데이터 생성
 
         Args:
@@ -67,11 +68,30 @@ class SequenceGenerator:
         if len(data) != len(labels):
             raise ValueError("data와 labels의 길이가 다릅니다.")
 
+=======
+        분류용 시퀀스 데이터 생성.
+
+        Args:
+            data: (N, F) 형태의 특성 행렬
+            labels: (N,) 형태의 레이블 벡터
+
+        Returns:
+            X: (M, sequence_length, F)
+            y: (M,)  (각 시퀀스의 마지막 시점 레이블)
+        """
+        if len(data) != len(labels):
+            raise ValueError("data와 labels의 길이가 다릅니다.")
+
+        X, y = [], []
+>>>>>>> Stashed changes
         max_start = len(data) - self.sequence_length + 1
 
         for i in range(max_start):
             X.append(data[i : i + self.sequence_length])
+<<<<<<< Updated upstream
             # 시퀀스의 마지막 시점 레이블 사용
+=======
+>>>>>>> Stashed changes
             y.append(labels[i + self.sequence_length - 1])
 
         return np.array(X), np.array(y)
@@ -152,5 +172,6 @@ class SequenceGenerator:
         print(f"  테스트 데이터: {X_test.shape}")
         
         return (X_train, y_train), (X_val, y_val), (X_test, y_test), feature_names
+
 
 

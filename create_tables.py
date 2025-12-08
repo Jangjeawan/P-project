@@ -28,8 +28,8 @@ def main():
         return 1
     
     print("\n생성할 테이블:")
-    print("  1. stock_prices - 원본 5분봉 데이터 (OHLCV)")
-    print("  2. stock_prices_processed - 전처리 데이터 (37개 기술적 지표 포함)")
+    print("  1. stock_prices - 원본 주가 데이터 (일봉 OHLCV)")
+    print("  2. stock_prices_processed - 전처리 데이터 (기술적 지표 포함)")
     
     response = input("\n테이블을 생성하시겠습니까? (y/n): ")
     
