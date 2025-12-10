@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     Boolean,
     LargeBinary,
+    ForeignKey,
     func,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -115,6 +116,19 @@ class User(Base):
     password_hash = Column(LargeBinary, nullable=False)
     name = Column(String(100), nullable=False)
     created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+class UserBrokerConfig(Base):
+    """유저별 KIS 계좌 설정 (계좌번호, 상품코드 등)"""
+
+    __tablename__ = "user_broker_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    account_no = Column(String(32), nullable=False)  # 예: "12345678"
+    account_code = Column(String(8), nullable=False)  # 예: "01"
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class TradeOrder(Base):

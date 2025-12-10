@@ -130,6 +130,8 @@ class KISBroker:
         price: int = 0,
         ord_dvsn: str = "01",
         tr_id_override: Optional[str] = None,
+        account_no_override: Optional[str] = None,
+        account_code_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """현금 매수/매도 공통 함수."""
         if side not in {"BUY", "SELL"}:
@@ -157,8 +159,8 @@ class KISBroker:
         headers = self._headers(tr_id)
 
         body = {
-            "CANO": self.config.account_no,
-            "ACNT_PRDT_CD": self.config.account_code,
+            "CANO": account_no_override or self.config.account_no,
+            "ACNT_PRDT_CD": account_code_override or self.config.account_code,
             "PDNO": stock_code,
             "ORD_DVSN": ord_dvsn,
             "ORD_QTY": str(quantity),
@@ -181,6 +183,8 @@ class KISBroker:
         stock_code: str,
         quantity: int,
         tr_id_override: Optional[str] = None,
+        account_no_override: Optional[str] = None,
+        account_code_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """시장가 매수 주문."""
         return self.place_cash_order(
@@ -190,6 +194,8 @@ class KISBroker:
             price=0,
             ord_dvsn="03",
             tr_id_override=tr_id_override,
+            account_no_override=account_no_override,
+            account_code_override=account_code_override,
         )
 
     def sell_market(
@@ -197,6 +203,8 @@ class KISBroker:
         stock_code: str,
         quantity: int,
         tr_id_override: Optional[str] = None,
+        account_no_override: Optional[str] = None,
+        account_code_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """시장가 매도 주문."""
         return self.place_cash_order(
@@ -206,12 +214,19 @@ class KISBroker:
             price=0,
             ord_dvsn="03",
             tr_id_override=tr_id_override,
+            account_no_override=account_no_override,
+            account_code_override=account_code_override,
         )
 
     # ------------------------------------------------------------------ #
     # 잔고 조회
     # ------------------------------------------------------------------ #
-    def get_balance(self, tr_id_override: Optional[str] = None) -> Dict[str, Any]:
+    def get_balance(
+        self,
+        tr_id_override: Optional[str] = None,
+        account_no_override: Optional[str] = None,
+        account_code_override: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         계좌 잔고/보유 주식 조회.
 
@@ -234,8 +249,8 @@ class KISBroker:
 
         # KIS 예제 기준 기본 파라미터들
         params = {
-            "CANO": self.config.account_no,       # 계좌번호 앞 8자리
-            "ACNT_PRDT_CD": self.config.account_code,  # 상품코드 2자리
+            "CANO": account_no_override or self.config.account_no,       # 계좌번호 앞 8자리
+            "ACNT_PRDT_CD": account_code_override or self.config.account_code,  # 상품코드 2자리
             "AFHR_FLPR_YN": "N",   # 시간외 단일가 여부
             "OFL_YN": "N",         # 오프라인 여부
             "INQR_DVSN": "01",     # 조회구분
