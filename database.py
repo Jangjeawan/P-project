@@ -12,6 +12,7 @@ from sqlalchemy import (
     BigInteger,
     Text,
     Boolean,
+    LargeBinary,
     func,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -102,6 +103,18 @@ class StockPriceProcessed(Base):
     
     def __repr__(self):
         return f"<StockPriceProcessed(stock_name='{self.stock_name}', datetime='{self.datetime}')>"
+
+
+class User(Base):
+    """웹 프론트엔드용 로그인 사용자 테이블"""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), unique=True, nullable=False, index=True)
+    password_hash = Column(LargeBinary, nullable=False)
+    name = Column(String(100), nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
 
 
 class TradeOrder(Base):

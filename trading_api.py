@@ -17,15 +17,42 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
 
+import bcrypt
 from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+from jose import jwt
 from pydantic import BaseModel, Field
 
 from kis_broker import KISBroker, KISConfig
-from database import DatabaseManager, TradeOrder, AccountSnapshot, RiskSetting, AutoTradeRun
+from database import (
+    DatabaseManager,
+    TradeOrder,
+    AccountSnapshot,
+    RiskSetting,
+    AutoTradeRun,
+    StockPrice,
+    StockPriceProcessed,
+    User,
+)
 
 
 app = FastAPI(title="StuckAI Trading API", version="0.1.0")
+
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+
+# React 프론트엔드(예: Vite dev 서버) 연동을 위한 CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 전역 싱글톤 인스턴스 (토큰/DB 재사용)
 _db_manager: Optional[DatabaseManager] = None
@@ -287,19 +314,1501 @@ class AutoTradeRunItem(BaseModel):
     returncode: int
 
 
+class SignupRequest(BaseModel):
+    username: str
+    password: str
+    name: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    token: str
+    name: str
+
+
+@app.get("/signup-page", response_class=HTMLResponse)
+def signup_page():
+    """
+    단독 회원가입 페이지.
+    - 백엔드 /signup API 를 호출한다.
+    """
+    return """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>StuckAI 회원가입</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1f2937, #020617);
+      color: #e5e7eb;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: rgba(15,23,42,0.96);
+      border-radius: 18px;
+      border: 1px solid rgba(55,65,81,0.9);
+      box-shadow: 0 24px 80px rgba(15,23,42,0.95);
+      padding: 22px 24px 20px;
+      backdrop-filter: blur(18px);
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
+    label {
+      font-size: 12px;
+      color: #9ca3af;
+      display: block;
+      margin-bottom: 3px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid #374151;
+      padding: 7px 9px;
+      color: #e5e7eb;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    input:focus {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(37,99,235,0.7);
+      background: #020617;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      color: #020617;
+      background: linear-gradient(to right, #4ade80, #22c55e);
+      box-shadow: 0 12px 25px rgba(34,197,94,0.45);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 8px;
+      width: 100%;
+    }
+    button:disabled {
+      opacity: 0.7;
+      cursor: default;
+      box-shadow: none;
+    }
+    .status {
+      min-height: 18px;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .status.ok {
+      color: #4ade80;
+    }
+    .status.err {
+      color: #f97373;
+    }
+    .footer {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #9ca3af;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .link {
+      color: #60a5fa;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="title">회원가입</div>
+      <div class="subtitle">StuckAI 트레이딩 대시보드 이용을 위한 계정을 생성합니다.</div>
+      <form id="signup-form">
+        <div style="margin-bottom:10px;">
+          <label for="signup-username">아이디 (username)</label>
+          <input id="signup-username" autocomplete="off" required />
+        </div>
+        <div style="margin-bottom:10px;">
+          <label for="signup-name">이름</label>
+          <input id="signup-name" autocomplete="off" required />
+        </div>
+        <div>
+          <label for="signup-password">비밀번호</label>
+          <input id="signup-password" type="password" required />
+        </div>
+        <button type="submit" id="signup-btn">회원가입 완료</button>
+        <div class="status" id="signup-status"></div>
+      </form>
+      <div class="footer">
+        <span>이미 계정이 있으신가요?</span>
+        <span class="link" onclick="window.location.href='/login-page'">로그인 페이지로 이동</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const signupForm = document.getElementById("signup-form");
+    const signupBtn = document.getElementById("signup-btn");
+    const signupStatus = document.getElementById("signup-status");
+
+    signupForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("signup-username").value.trim();
+      const name = document.getElementById("signup-name").value.trim();
+      const password = document.getElementById("signup-password").value;
+
+      if (!username || !name || !password) {
+        signupStatus.textContent = "모든 필드를 입력하세요.";
+        signupStatus.className = "status err";
+        return;
+      }
+
+      signupBtn.disabled = true;
+      signupStatus.textContent = "회원가입 요청 중...";
+      signupStatus.className = "status";
+
+      try {
+        const res = await fetch("/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, name, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          signupStatus.textContent = "회원가입 성공! 로그인 페이지로 이동합니다.";
+          signupStatus.className = "status ok";
+          setTimeout(() => {
+            window.location.href = "/login-page";
+          }, 800);
+        } else {
+          const msg = data && data.detail ? data.detail : "알 수 없는 오류";
+          signupStatus.textContent = "회원가입 실패: " + msg;
+          signupStatus.className = "status err";
+        }
+      } catch (e2) {
+        signupStatus.textContent = "요청 에러: " + e2;
+        signupStatus.className = "status err";
+      } finally {
+        signupBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+    """
+
+
+@app.get("/login-page", response_class=HTMLResponse)
+def login_page():
+    """
+    단독 로그인 페이지.
+    - 백엔드 /login, /me API 를 사용.
+    """
+    return """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>StuckAI 로그인</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1f2937, #020617);
+      color: #e5e7eb;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: rgba(15,23,42,0.96);
+      border-radius: 18px;
+      border: 1px solid rgba(55,65,81,0.9);
+      box-shadow: 0 24px 80px rgba(15,23,42,0.95);
+      padding: 22px 24px 18px;
+      backdrop-filter: blur(18px);
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
+    label {
+      font-size: 12px;
+      color: #9ca3af;
+      display: block;
+      margin-bottom: 3px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid #374151;
+      padding: 7px 9px;
+      color: #e5e7eb;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    input:focus {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(37,99,235,0.7);
+      background: #020617;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      color: #020617;
+      background: linear-gradient(to right, #4ade80, #22c55e);
+      box-shadow: 0 12px 25px rgba(34,197,94,0.45);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 8px;
+      width: 100%;
+    }
+    button.secondary {
+      background: #111827;
+      color: #e5e7eb;
+      box-shadow: none;
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      border: 1px solid #374151;
+      width: auto;
+    }
+    button:disabled {
+      opacity: 0.7;
+      cursor: default;
+      box-shadow: none;
+    }
+    .status {
+      min-height: 18px;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .status.ok {
+      color: #4ade80;
+    }
+    .status.err {
+      color: #f97373;
+    }
+    .footer {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #9ca3af;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .link {
+      color: #60a5fa;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .small {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="title">로그인</div>
+      <div class="subtitle">가입한 계정으로 로그인하여 트레이딩 대시보드에 접근합니다.</div>
+      <form id="login-form">
+        <div style="margin-bottom:10px;">
+          <label for="login-username">아이디 (username)</label>
+          <input id="login-username" autocomplete="username" required />
+        </div>
+        <div>
+          <label for="login-password">비밀번호</label>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" id="login-btn">로그인</button>
+        <div class="status" id="login-status"></div>
+      </form>
+      <div class="small" id="login-user-info">현재 로그인: 없음</div>
+      <div class="footer">
+        <span class="link" onclick="window.location.href='/signup-page'">아직 계정이 없으신가요? 회원가입</span>
+        <button class="secondary" id="btn-go-home">홈페이지</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function getToken() {
+      try {
+        return window.localStorage.getItem("stuckai_token") || "";
+      } catch (e) {
+        return "";
+      }
+    }
+
+    function setToken(token, name) {
+      try {
+        window.localStorage.setItem("stuckai_token", token);
+        window.localStorage.setItem("stuckai_name", name || "");
+      } catch (e) {
+        console.warn("토큰 저장 실패:", e);
+      }
+    }
+
+    function updateUserInfoUI() {
+      const name = window.localStorage.getItem("stuckai_name");
+      const info = document.getElementById("login-user-info");
+      if (name) {
+        info.textContent = "현재 로그인: " + name;
+      } else {
+        info.textContent = "현재 로그인: 없음";
+      }
+    }
+
+    const loginForm = document.getElementById("login-form");
+    const loginBtn = document.getElementById("login-btn");
+    const loginStatus = document.getElementById("login-status");
+    const btnGoHome = document.getElementById("btn-go-home");
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("login-username").value.trim();
+      const password = document.getElementById("login-password").value;
+
+      if (!username || !password) {
+        loginStatus.textContent = "아이디와 비밀번호를 입력하세요.";
+        loginStatus.className = "status err";
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginStatus.textContent = "로그인 요청 중...";
+      loginStatus.className = "status";
+
+      try {
+        const res = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const token = data.token;
+          const name = data.name;
+          setToken(token, name);
+          updateUserInfoUI();
+          loginStatus.textContent = "로그인 성공! 홈페이지로 이동합니다.";
+          loginStatus.className = "status ok";
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 800);
+        } else {
+          const msg = data && data.detail ? data.detail : "알 수 없는 오류";
+          loginStatus.textContent = "로그인 실패: " + msg;
+          loginStatus.className = "status err";
+        }
+      } catch (e2) {
+        loginStatus.textContent = "요청 에러: " + e2;
+        loginStatus.className = "status err";
+      } finally {
+        loginBtn.disabled = false;
+      }
+    });
+
+    btnGoHome.addEventListener("click", () => {
+      window.location.href = "/";
+    });
+
+    updateUserInfoUI();
+    if (getToken()) {
+      loginStatus.textContent = "저장된 토큰이 있습니다. 바로 로그인 확인이 가능합니다.";
+      loginStatus.className = "status ok";
+    }
+  </script>
+</body>
+</html>
+    """
+
+
+@app.get("/auth", response_class=HTMLResponse)
+def auth_page():
+    """
+    아주 간단한 회원가입/로그인 프론트엔드 페이지.
+    - 브라우저에서 http://localhost:8000/auth 접속
+    - /signup, /login, /me 엔드포인트를 사용
+    """
+    return """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>StuckAI Auth</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1f2937, #020617);
+      color: #e5e7eb;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 900px;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: rgba(15,23,42,0.95);
+      border-radius: 18px;
+      border: 1px solid rgba(55,65,81,0.9);
+      box-shadow: 0 24px 80px rgba(15,23,42,0.9);
+      padding: 24px 28px;
+      backdrop-filter: blur(18px);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .chip {
+      font-size: 11px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(59,130,246,0.6);
+      background: rgba(37,99,235,0.15);
+      color: #60a5fa;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+    @media (max-width: 768px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .panel-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    label {
+      font-size: 12px;
+      color: #9ca3af;
+      display: block;
+      margin-bottom: 3px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid #374151;
+      padding: 7px 9px;
+      color: #e5e7eb;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    input:focus {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(37,99,235,0.7);
+      background: #020617;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      color: #020617;
+      background: linear-gradient(to right, #4ade80, #22c55e);
+      box-shadow: 0 12px 25px rgba(34,197,94,0.45);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    button.secondary {
+      background: #111827;
+      color: #e5e7eb;
+      box-shadow: none;
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      border: 1px solid #374151;
+    }
+    button:disabled {
+      opacity: 0.7;
+      cursor: default;
+      box-shadow: none;
+    }
+    .status {
+      min-height: 18px;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .status.ok {
+      color: #4ade80;
+    }
+    .status.err {
+      color: #f97373;
+    }
+    .token-box {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #9ca3af;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid #111827;
+      padding: 8px 10px;
+      max-height: 80px;
+      overflow: auto;
+    }
+    .hint {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="header">
+        <div>
+          <div class="title">StuckAI 회원 시스템</div>
+          <div class="subtitle">백엔드 FastAPI의 <code>/signup</code>, <code>/login</code>, <code>/me</code> 를 직접 호출하는 간단한 로그인/회원가입 화면입니다.</div>
+        </div>
+        <span class="chip">로컬 전용 · 데모</span>
+      </div>
+
+      <div class="grid">
+        <section>
+          <div class="panel-title">회원가입</div>
+          <form id="signup-form">
+            <div>
+              <label for="signup-username">아이디 (username)</label>
+              <input id="signup-username" autocomplete="off" required />
+            </div>
+            <div>
+              <label for="signup-name">이름</label>
+              <input id="signup-name" autocomplete="off" required />
+            </div>
+            <div>
+              <label for="signup-password">비밀번호</label>
+              <input id="signup-password" type="password" required />
+            </div>
+            <button type="submit" id="signup-btn">회원가입</button>
+            <div class="status" id="signup-status"></div>
+          </form>
+        </section>
+
+        <section>
+          <div class="panel-title">로그인</div>
+          <form id="login-form">
+            <div>
+              <label for="login-username">아이디 (username)</label>
+              <input id="login-username" autocomplete="username" required />
+            </div>
+            <div>
+              <label for="login-password">비밀번호</label>
+              <input id="login-password" type="password" autocomplete="current-password" required />
+            </div>
+            <button type="submit" id="login-btn">로그인</button>
+            <div class="status" id="login-status"></div>
+          </form>
+
+          <div style="margin-top: 14px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="font-size: 12px;">
+              <div id="login-user-info">현재 로그인: 없음</div>
+              <div class="hint">로그인에 성공하면 JWT 토큰이 브라우저 localStorage 에 저장됩니다.</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+              <button class="secondary" id="btn-check-me">/me 로 로그인 확인</button>
+              <button class="secondary" id="btn-logout">로그아웃</button>
+            </div>
+          </div>
+          <div class="token-box" id="token-box">토큰 정보가 여기에 표시됩니다.</div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function getToken() {
+      try {
+        return window.localStorage.getItem("stuckai_token") || "";
+      } catch (e) {
+        return "";
+      }
+    }
+
+    function setToken(token, name) {
+      try {
+        window.localStorage.setItem("stuckai_token", token);
+        window.localStorage.setItem("stuckai_name", name || "");
+      } catch (e) {
+        console.warn("토큰 저장 실패:", e);
+      }
+    }
+
+    function clearToken() {
+      try {
+        window.localStorage.removeItem("stuckai_token");
+        window.localStorage.removeItem("stuckai_name");
+      } catch (e) {
+        console.warn("토큰 삭제 실패:", e);
+      }
+    }
+
+    function updateUserInfoUI() {
+      const name = window.localStorage.getItem("stuckai_name");
+      const info = document.getElementById("login-user-info");
+      if (name) {
+        info.textContent = "현재 로그인: " + name;
+      } else {
+        info.textContent = "현재 로그인: 없음";
+      }
+    }
+
+    const signupForm = document.getElementById("signup-form");
+    const signupBtn = document.getElementById("signup-btn");
+    const signupStatus = document.getElementById("signup-status");
+
+    const loginForm = document.getElementById("login-form");
+    const loginBtn = document.getElementById("login-btn");
+    const loginStatus = document.getElementById("login-status");
+    const tokenBox = document.getElementById("token-box");
+    const btnCheckMe = document.getElementById("btn-check-me");
+    const btnLogout = document.getElementById("btn-logout");
+
+    signupForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("signup-username").value.trim();
+      const name = document.getElementById("signup-name").value.trim();
+      const password = document.getElementById("signup-password").value;
+
+      if (!username || !name || !password) {
+        signupStatus.textContent = "모든 필드를 입력하세요.";
+        signupStatus.className = "status err";
+        return;
+      }
+
+      signupBtn.disabled = true;
+      signupStatus.textContent = "회원가입 요청 중...";
+      signupStatus.className = "status";
+
+      try {
+        const res = await fetch("/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, name, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          signupStatus.textContent = "회원가입 성공! 이제 로그인 해보세요.";
+          signupStatus.className = "status ok";
+        } else {
+          const msg = data && data.detail ? data.detail : "알 수 없는 오류";
+          signupStatus.textContent = "회원가입 실패: " + msg;
+          signupStatus.className = "status err";
+        }
+      } catch (e2) {
+        signupStatus.textContent = "요청 에러: " + e2;
+        signupStatus.className = "status err";
+      } finally {
+        signupBtn.disabled = false;
+      }
+    });
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("login-username").value.trim();
+      const password = document.getElementById("login-password").value;
+
+      if (!username || !password) {
+        loginStatus.textContent = "아이디와 비밀번호를 입력하세요.";
+        loginStatus.className = "status err";
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginStatus.textContent = "로그인 요청 중...";
+      loginStatus.className = "status";
+
+      try {
+        const res = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const token = data.token;
+          const name = data.name;
+          setToken(token, name);
+          updateUserInfoUI();
+          loginStatus.textContent = "로그인 성공!";
+          loginStatus.className = "status ok";
+          tokenBox.textContent = token ? token : "토큰이 없습니다.";
+        } else {
+          const msg = data && data.detail ? data.detail : "알 수 없는 오류";
+          loginStatus.textContent = "로그인 실패: " + msg;
+          loginStatus.className = "status err";
+        }
+      } catch (e2) {
+        loginStatus.textContent = "요청 에러: " + e2;
+        loginStatus.className = "status err";
+      } finally {
+        loginBtn.disabled = false;
+      }
+    });
+
+    btnCheckMe.addEventListener("click", async () => {
+      const token = getToken();
+      if (!token) {
+        tokenBox.textContent = "저장된 토큰이 없습니다. 먼저 로그인하세요.";
+        return;
+      }
+      btnCheckMe.disabled = true;
+      tokenBox.textContent = "/me 요청 중...";
+      try {
+        const res = await fetch("/me?token=" + encodeURIComponent(token));
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          tokenBox.textContent = "토큰 유효 ✅\\n" + JSON.stringify(data, null, 2);
+        } else {
+          const msg = data && data.detail ? data.detail : "알 수 없는 오류";
+          tokenBox.textContent = "토큰 오류 ❌: " + msg;
+        }
+      } catch (e2) {
+        tokenBox.textContent = "요청 에러: " + e2;
+      } finally {
+        btnCheckMe.disabled = false;
+      }
+    });
+
+    btnLogout.addEventListener("click", () => {
+      clearToken();
+      updateUserInfoUI();
+      tokenBox.textContent = "로그아웃 완료. 토큰이 삭제되었습니다.";
+      loginStatus.textContent = "";
+    });
+
+    // 초기 UI 상태
+    updateUserInfoUI();
+    const saved = getToken();
+    if (saved) {
+      tokenBox.textContent = saved;
+    }
+  </script>
+</body>
+</html>
+    """
+
+
+@app.post("/signup")
+def signup(req: SignupRequest):
+    """
+    React `Signup` 페이지용 회원가입.
+    - username 중복 시 400 에러.
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        # 중복 체크
+        exists = session.query(User).filter(User.username == req.username).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="이미 존재하는 사용자")
+
+        hashed = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt())
+        user = User(username=req.username, password_hash=hashed, name=req.name)
+        session.add(user)
+        session.commit()
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"회원가입 실패: {e}")
+    finally:
+        session.close()
+
+    return {"message": "회원가입 성공"}
+
+
+@app.post("/login", response_model=TokenResponse)
+def login(req: LoginRequest):
+    """
+    React `Login` 페이지용 로그인.
+    - 성공 시 JWT 토큰과 이름 반환.
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        user = session.query(User).filter(User.username == req.username).first()
+    finally:
+        session.close()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="아이디 또는 비밀번호 오류")
+
+    stored_hash = user.password_hash
+    if isinstance(stored_hash, memoryview):
+        stored_hash = stored_hash.tobytes()
+
+    if not bcrypt.checkpw(req.password.encode("utf-8"), stored_hash):
+        raise HTTPException(status_code=400, detail="아이디 또는 비밀번호 오류")
+
+    payload = {
+        "username": user.username,
+        "name": user.name,
+        "exp": datetime.utcnow() + timedelta(hours=3),
+    }
+    token = jwt.encode(payload, SECRET_KEY)
+
+    return TokenResponse(token=token, name=user.name)
+
+
+@app.get("/me")
+def me(token: str):
+    """
+    로그인 유지 확인용 간단 엔드포인트.
+    - 쿼리 파라미터 ?token=... 으로 토큰 전달 가정.
+    - 필요 시 Authorization 헤더 방식으로 확장 가능.
+    """
+    try:
+        data = jwt.decode(token, SECRET_KEY)
+        return {"username": data.get("username"), "name": data.get("name")}
+    except Exception:
+        raise HTTPException(status_code=401, detail="토큰 만료 또는 오류")
+
+
+# ---------------------------------------------------------------------------
+# React 프론트엔드 호환용 간단 계정/트레이드/지표 API
+#   - baseURL: http://localhost:8000
+#   - /account/info, /account/history
+#   - /trade/buy, /trade/sell, /trade/auto
+#   - /chart, /indicator, /history
+# ---------------------------------------------------------------------------
+
+
+@app.get("/account/info")
+def api_account_info():
+    """React `Account` 페이지용: 계좌 요약 + 보유 종목."""
+    broker = get_broker()
+    try:
+        bal = broker.get_balance()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"KIS 잔고 조회 실패: {e}")
+
+    raw = bal if isinstance(bal, dict) else {}
+    holdings = raw.get("output1") or []
+    summary_list = raw.get("output2") or []
+    summary = summary_list[0] if summary_list else {}
+
+    total_eval = 0.0
+    for h in holdings:
+        try:
+            total_eval += float(h.get("evlu_amt") or 0)
+        except (TypeError, ValueError):
+            continue
+
+    cash_raw = summary.get("dnca_tot_amt") or summary.get("nass_amt") or 0
+    try:
+        cash = float(cash_raw)
+    except (TypeError, ValueError):
+        cash = 0.0
+
+    balance = total_eval + cash
+
+    return {
+        "balance": balance,
+        "cash": cash,
+        "holdings": holdings,
+    }
+
+
+@app.get("/account/history")
+def api_account_history(limit: int = Query(50, ge=1, le=500)):
+    """React `Account` 페이지용: 최근 주문/거래 내역."""
+    db = get_db()
+    session = db.get_session()
+    try:
+        rows = (
+            session.query(TradeOrder)
+            .order_by(TradeOrder.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+    finally:
+        session.close()
+
+    history = []
+    for r in rows:
+        history.append(
+            {
+                "created_at": r.created_at,
+                "stock_code": r.stock_code,
+                "stock_name": r.stock_name,
+                "side": r.side,
+                "quantity": r.quantity,
+                "order_price": r.order_price,
+                "order_amount": r.order_amount,
+                "status": r.status,
+            }
+        )
+
+    return {"history": history}
+
+
+class TradeAmountRequest(BaseModel):
+    stock_code: str
+    amount: float = Field(..., gt=0, description="원화 기준 투자 금액")
+
+
+def _place_market_order_internal(stock_code: str, side: str, quantity: int):
+    """기존 /orders/market 로직을 재사용하기 위한 내부 헬퍼."""
+    broker = get_broker()
+    db = get_db()
+
+    side_up = side.upper()
+    if side_up not in ("BUY", "SELL"):
+        raise HTTPException(status_code=400, detail="side 는 'BUY' 또는 'SELL' 이어야 합니다.")
+
+    # 리스크 한도 체크
+    check_risk_limit(broker, stock_code=stock_code, side=side_up, quantity=quantity)
+
+    try:
+        if side_up == "BUY":
+            res = broker.buy_market(stock_code=stock_code, quantity=quantity)
+        else:
+            res = broker.sell_market(stock_code=stock_code, quantity=quantity)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"KIS 주문 실패: {e}")
+
+    # 주문 로그 저장
+    session = db.get_session()
+    try:
+        output = res.get("output") if isinstance(res, dict) else None
+        stock_name = output.get("PDNAME") if isinstance(output, dict) else None
+        order_price = None
+        order_amount = None
+        if isinstance(output, dict):
+            try:
+                order_price = float(output.get("ORD_UNPR") or 0)
+                qty = float(output.get("ORD_QTY") or quantity)
+                order_amount = order_price * qty
+            except Exception:
+                pass
+        order = TradeOrder(
+            stock_code=stock_code,
+            stock_name=stock_name,
+            side=side_up,
+            quantity=quantity,
+            order_price=order_price,
+            order_amount=order_amount,
+            status="OK" if isinstance(res, dict) and res.get("rt_cd") in (None, "0") else "ERROR",
+            raw_response=json.dumps(res, ensure_ascii=False),
+        )
+        session.add(order)
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+    return res
+
+
+def _infer_quantity_from_amount(stock_code: str, amount: float) -> int:
+    """
+    금액(원화) 기준 주문에서 수량을 추정.
+    - 최근 StockPrice.close 를 조회하여 amount / close 로 수량 계산.
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        row = (
+            session.query(StockPrice)
+            .filter(StockPrice.stock_code == stock_code)
+            .order_by(StockPrice.datetime.desc())
+            .first()
+        )
+    finally:
+        session.close()
+
+    if not row:
+        raise HTTPException(status_code=400, detail=f"종목 {stock_code} 에 대한 가격 데이터가 없습니다.")
+
+    if not row.close or row.close <= 0:
+        raise HTTPException(status_code=400, detail=f"종목 {stock_code} 의 종가 정보가 유효하지 않습니다.")
+
+    qty = int(amount / row.close)
+    if qty <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"금액 {int(amount):,}원 으로는 {stock_code} 1주도 매수할 수 없습니다. (종가 약 {row.close:,.0f}원)",
+        )
+    return qty
+
+
+@app.get("/chart")
+def api_chart(stock_code: str = Query(...), limit: int = Query(200, ge=10, le=1000)):
+    """
+    React `Chart` 페이지용 캔들 데이터.
+
+    - StockPrice 테이블에서 OHLCV 조회
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        rows = (
+            session.query(StockPrice)
+            .filter(StockPrice.stock_code == stock_code)
+            .order_by(StockPrice.datetime.asc())
+            .all()
+        )
+    finally:
+        session.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="차트 데이터가 없습니다.")
+
+    candles = []
+    for r in rows[-limit:]:
+        candles.append(
+            {
+                "datetime": r.datetime,
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "volume": r.volume,
+            }
+        )
+
+    return {"stock_code": stock_code, "candles": candles}
+
+
+@app.get("/indicator")
+def api_indicator(stock_code: str = Query(...)):
+    """
+    React `Indicators` 페이지용 기술적 지표.
+
+    - StockPriceProcessed 테이블의 최신 한 줄을 사용.
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        row = (
+            session.query(StockPriceProcessed)
+            .filter(StockPriceProcessed.stock_code == stock_code)
+            .order_by(StockPriceProcessed.datetime.desc())
+            .first()
+        )
+    finally:
+        session.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="지표 데이터가 없습니다.")
+
+    def safe(v):
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "stock_code": stock_code,
+        "MA20": safe(row.ma_20),
+        "MA60": safe(row.ma_60),
+        "RSI": safe(row.rsi),
+        "MACD": safe(row.macd),
+        "Signal": safe(row.macd_signal),
+        "Histogram": safe(row.macd_hist),
+        "Upper": safe(row.bb_upper),
+        "Lower": safe(row.bb_lower),
+        "%K": safe(row.stoch_k),
+        "%D": safe(row.stoch_d),
+        "ATR": safe(row.atr),
+    }
+
+
+@app.get("/history")
+def api_history(limit: int = Query(50, ge=1, le=500)):
+    """
+    React `History` 페이지용 예측/거래 히스토리.
+
+    - 현재는 trade_orders 테이블 기반.
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        rows = (
+            session.query(TradeOrder)
+            .order_by(TradeOrder.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+    finally:
+        session.close()
+
+    history = []
+    for r in rows:
+        history.append(
+            {
+                "created_at": r.created_at,
+                "stock_code": r.stock_code,
+                "stock_name": r.stock_name,
+                "side": r.side,
+                "quantity": r.quantity,
+                "order_price": r.order_price,
+                "order_amount": r.order_amount,
+                "status": r.status,
+            }
+        )
+
+    return {"history": history}
+
+
+@app.post("/trade/buy")
+def api_trade_buy(req: TradeAmountRequest):
+    """React `buyStock`용: 금액 기준 매수 API."""
+    qty = _infer_quantity_from_amount(req.stock_code, req.amount)
+    res = _place_market_order_internal(stock_code=req.stock_code, side="BUY", quantity=qty)
+    return {"status": "ok", "quantity": qty, "response": res}
+
+
+@app.post("/trade/sell")
+def api_trade_sell(req: TradeAmountRequest):
+    """React `sellStock`용: 금액 기준 매도 API (보유 수량 한도 내)."""
+    qty = _infer_quantity_from_amount(req.stock_code, req.amount)
+    res = _place_market_order_internal(stock_code=req.stock_code, side="SELL", quantity=qty)
+    return {"status": "ok", "quantity": qty, "response": res}
+
+
+@app.post("/trade/auto")
+def api_trade_auto(payload: dict):
+    """
+    React `autoTrade` 버튼용.
+    - 현재는 전체 자동매매 스크립트(auto_trader.py)를 1회 실행.
+    - payload 내 stock_code 는 로깅 수준에서만 사용.
+    """
+    stock_code = payload.get("stock_code")
+
+    script_path = Path(__file__).parent / "auto_trader.py"
+    if not script_path.exists():
+        raise HTTPException(status_code=500, detail=f"auto_trader 스크립트를 찾을 수 없습니다: {script_path}")
+
+    try:
+        proc = subprocess.run(
+            ["python", str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise HTTPException(status_code=500, detail=f"auto_trader 실행 시간 초과: {e}")
+
+    msg = "자동 투자 실행 완료"
+    if stock_code:
+        msg += f" (요청 종목: {stock_code})"
+
+    return {
+        "message": msg,
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
+def home():
+    """
+    메인 홈페이지.
+    - 회원가입 / 로그인 / 트레이딩 대시보드로 이동 버튼 제공
+    """
+    return """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>StuckAI Home</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           background: radial-gradient(circle at top, #1f2937, #020617); color: #e5e7eb;
+           min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .wrap { width: 100%; max-width: 960px; padding: 24px; box-sizing: border-box; }
+    .card { background: rgba(15,23,42,0.96); border-radius: 18px; border: 1px solid rgba(55,65,81,0.9);
+            box-shadow: 0 24px 80px rgba(15,23,42,0.95); padding: 22px 26px 22px; backdrop-filter: blur(18px); }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+    .title { font-size: 22px; font-weight: 600; }
+    .chip { font-size: 11px; padding: 2px 10px; border-radius: 999px; background: rgba(34,197,94,0.15);
+            color: #4ade80; border: 1px solid rgba(34,197,94,0.4); }
+    .subtitle { font-size: 13px; color: #9ca3af; margin-bottom: 12px; }
+    .hero { display:grid; grid-template-columns: minmax(0,1.5fr) minmax(0,1fr); gap:22px; margin-bottom:22px; align-items:center; }
+    @media (max-width: 880px) { .hero { grid-template-columns: 1fr; } }
+    .hero-title { font-size:26px; font-weight:650; margin-bottom:6px; }
+    .hero-sub { font-size:13px; color:#9ca3af; margin-bottom:10px; }
+    .hero-tags { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+    .pill { font-size:11px; padding:2px 9px; border-radius:999px; border:1px solid #374151; background:#020617; color:#e5e7eb; }
+    .hero-metrics { display:flex; gap:14px; font-size:12px; color:#9ca3af; margin-top:4px; }
+    .metric-label { color:#6b7280; font-size:11px; }
+    .metric-value { font-size:14px; font-weight:600; color:#e5e7eb; }
+    .hero-chart-wrap { background:#020617; border-radius:14px; border:1px solid #1f2937; padding:10px 12px 12px; box-shadow:0 14px 35px rgba(15,23,42,0.9); }
+    .hero-chart-title { font-size:12px; color:#9ca3af; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+    .dot { width:7px; height:7px; border-radius:999px; background:#4ade80; margin-right:4px; }
+    .dot-wrap { display:flex; align-items:center; gap:4px; font-size:11px; color:#6b7280; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+    @media (max-width: 880px) { .grid { grid-template-columns: repeat(1, minmax(0,1fr)); } }
+    .panel { background:#020617; border-radius: 14px; border:1px solid #1f2937; padding:14px 15px 14px; }
+    .panel h3 { margin:0 0 6px 0; font-size:15px; }
+    .panel p { margin:0 0 10px 0; font-size:12px; color:#9ca3af; }
+    button { border:none; border-radius:999px; padding:7px 11px; font-size:13px; font-weight:500;
+             cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+    .btn-main { background:linear-gradient(to right,#4ade80,#22c55e); color:#020617; box-shadow:0 12px 25px rgba(34,197,94,0.45); }
+    .btn-outline { background:#020617; color:#e5e7eb; border:1px solid #374151; border-radius:10px; font-size:12px; padding:6px 10px; }
+    .hint { font-size:11px; color:#6b7280; margin-top:8px; }
+    .user { font-size:12px; color:#9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="header">
+        <div>
+          <div class="title">stuckAI</div>
+          <div class="subtitle">SAC 강화학습 + KIS OpenAPI 기반 자동 매매 데모 서비스입니다.</div>
+        </div>
+        <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+          <div class="chip">로컬 개발용</div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn-outline" onclick="window.location.href='/login-page'">로그인</button>
+            <button class="btn-main" onclick="window.location.href='/signup-page'">회원가입</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero">
+        <div>
+          <div class="hero-title">강화학습이 스스로 학습한 주식 자동매매 엔진</div>
+          <div class="hero-sub">
+            삼성전자 · 네이버 · 현대차 3종목에 대해 Soft Actor-Critic 기반으로 학습한 RL 에이전트가
+            매일 포지션을 결정하고, KIS OpenAPI를 통해 모의계좌에 주문을 집행합니다.
+          </div>
+          <div class="hero-tags">
+            <span class="pill">Reinforcement Learning · SAC</span>
+            <span class="pill">KIS OpenAPI 연동</span>
+            <span class="pill">자동 일별 리밸런싱</span>
+            <span class="pill">리스크 한도 관리</span>
+          </div>
+          <div class="hero-metrics">
+            <div>
+              <div class="metric-label">Backtest 누적 수익률 (예시)</div>
+              <div class="metric-value">+38.4%</div>
+            </div>
+            <div>
+              <div class="metric-label">최대 낙폭 관리</div>
+              <div class="metric-value">-12.7%</div>
+            </div>
+            <div>
+              <div class="metric-label">운영 종목 수</div>
+              <div class="metric-value">3개</div>
+            </div>
+          </div>
+        </div>
+        <div class="hero-chart-wrap">
+          <div class="hero-chart-title">
+            <span>샘플 운용 곡선 (시뮬레이션)</span>
+            <div class="dot-wrap"><span class="dot"></span><span>전략 순자산</span></div>
+          </div>
+          <canvas id="hero-chart" width="360" height="180"></canvas>
+        </div>
+      </div>
+
+      <div class="grid">
+        <section class="panel">
+          <h3>01. 회원가입</h3>
+          <p>계정을 먼저 만들어야 로그인 후 대시보드에 접근할 수 있습니다.</p>
+          <button class="btn-main" onclick="window.location.href='/signup-page'">회원가입 페이지로 이동</button>
+        </section>
+
+        <section class="panel">
+          <h3>02. 로그인</h3>
+          <p>로그인에 성공하면 브라우저에 JWT 토큰이 저장되고, 이름이 상단에 표시됩니다.</p>
+          <button class="btn-main" onclick="window.location.href='/login-page'">로그인 페이지로 이동</button>
+        </section>
+
+        <section class="panel">
+          <h3>03. 트레이딩 대시보드</h3>
+          <p>계좌 잔고, 보유 종목, 주문, 리스크 설정 등을 확인하고 제어합니다.</p>
+          <button class="btn-main" onclick="window.location.href='/dashboard'">대시보드 열기</button>
+          <div class="hint">로그인하지 않아도 열리지만, 상단 로그인 상태는 로컬 토큰 기준으로 표시됩니다.</div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function updateUserInfo() {
+      try {
+        const name = window.localStorage.getItem("stuckai_name");
+        const el = document.getElementById("user-info");
+        if (!el) return;
+        if (name) {
+          el.textContent = "현재 로그인: " + name;
+        } else {
+          el.textContent = "현재 로그인: 없음";
+        }
+      } catch (e) {}
+    }
+    updateUserInfo();
+
+    // 간단한 샘플 그래프 그리기 (더미 데이터 기반)
+    (function drawHeroChart() {
+      const canvas = document.getElementById("hero-chart");
+      if (!canvas || !canvas.getContext) return;
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+
+      // 배경
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, w, h);
+
+      // 축선
+      ctx.strokeStyle = "#1f2937";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(32, 12);
+      ctx.lineTo(32, h - 18);
+      ctx.lineTo(w - 8, h - 18);
+      ctx.stroke();
+
+      // 더미 순자산 데이터 (0~1 구간)
+      const points = [0.12, 0.18, 0.15, 0.23, 0.28, 0.32, 0.29, 0.37, 0.41, 0.38, 0.44, 0.48];
+      const n = points.length;
+
+      // 라인
+      ctx.strokeStyle = "#4ade80";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = 32 + (w - 48) * (i / (n - 1));
+        const y = (h - 26) - (h - 40) * points[i];
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // 그라데이션 영역
+      const grad = ctx.createLinearGradient(0, 20, 0, h - 18);
+      grad.addColorStop(0, "rgba(74,222,128,0.32)");
+      grad.addColorStop(1, "rgba(15,23,42,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = 32 + (w - 48) * (i / (n - 1));
+        const y = (h - 26) - (h - 40) * points[i];
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(32 + (w - 48), h - 18);
+      ctx.lineTo(32, h - 18);
+      ctx.closePath();
+      ctx.fill();
+    })();
+  </script>
+</body>
+</html>
+    """
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
     """
-    간단 웹 대시보드 (잔고 조회 + 시장가 주문).
-
-    - 브라우저에서 http://localhost:8000/ 으로 접속
-    - 우측 상단 버튼으로 잔고 조회
-    - 아래 폼으로 간단한 시장가 주문 테스트
+    기존 트레이딩 대시보드 (잔고 조회 + 시장가 주문).
+    
+    - 브라우저에서 http://localhost:8000/dashboard 로 접속
     """
     return """
 <!DOCTYPE html>
@@ -402,7 +1911,7 @@ def dashboard():
         <button id="btn-refresh-orders">새로고침</button>
       </h2>
       <div class="subtitle">최근 자동/수동 주문 기록을 확인할 수 있습니다.</div>
-      <div class="row" style="margin-bottom:8px;">
+      <div class="row" style="margin-bottom:8px%;">
         <div class="small">종목코드로 필터링 (예: 005930)</div>
         <input id="orders-symbol" placeholder="전체" style="max-width:120px;" />
       </div>
@@ -459,6 +1968,28 @@ def dashboard():
   </main>
 
   <script>
+    // --- 간단 로그인 체크: 토큰 없거나 /me 실패 시 로그인 페이지로 이동 ---
+    (async function guardDashboard() {
+      try {
+        const token = window.localStorage.getItem("stuckai_token");
+        if (!token) {
+          alert("대시보드를 보려면 먼저 로그인 해주세요.");
+          window.location.href = "/login-page";
+          return;
+        }
+        // 선택적으로 /me 호출로 토큰 유효성 확인
+        const res = await fetch("/me?token=" + encodeURIComponent(token));
+        if (!res.ok) {
+          window.localStorage.removeItem("stuckai_token");
+          window.localStorage.removeItem("stuckai_name");
+          alert("로그인 정보가 만료되었습니다. 다시 로그인 해주세요.");
+          window.location.href = "/login-page";
+        }
+      } catch (e) {
+        console.warn("대시보드 가드 오류:", e);
+      }
+    })();
+
     async function fetchJson(url, options) {
       const res = await fetch(url, options);
       const text = await res.text();
