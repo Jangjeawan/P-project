@@ -1,8 +1,8 @@
 """
-일 단위 자동 매매 스크립트 (SAC + KIS 모의투자).
+시간 단위 자동 매매 스크립트 (SAC + KIS 모의투자).
 
 설계:
-  - 학습된 SAC 정책을 이용해 하루에 한 번 종목별 매수/매도 여부를 결정
+  - 학습된 SAC 정책을 이용해 1시간마다 종목별 매수/매도 여부를 결정
   - 의사결정 로직은 단순 데모용:
       action > 0.3  →  1주 시장가 매수
       action < -0.3 →  1주 시장가 매도
@@ -110,16 +110,16 @@ def decide_order_from_action(action: float) -> str:
     return "HOLD"
 
 
-def run_daily_trading():
+def run_hourly_trading():
     """
-    하루에 한 번 실행하는 자동 매매 루틴.
+    1시간마다 실행하는 자동 매매 루틴.
 
     - 각 종목별로 SAC 정책을 로드
     - 최신 관측값으로 액션을 계산
     - 간단한 규칙에 따라 1주 시장가 매수/매도 실행
     """
     print("\n==============================")
-    print("  StuckAI 일일 자동 매매 시작")
+    print("  StuckAI 시간 단위 자동 매매 시작 (1시간 주기 가정)")
     print("==============================\n")
 
     broker = KISBroker()
@@ -171,11 +171,14 @@ def run_daily_trading():
             print(f"  주문 실패: {e}")
 
     print("\n==============================")
-    print("  일일 자동 매매 루틴 종료")
+    print("  시간 단위 자동 매매 루틴 종료")
     print("==============================\n")
 
 
 if __name__ == "__main__":
-    run_daily_trading()
+    # OS 스케줄러(Windows 작업 스케줄러, cron 등)나
+    # 리눅스에서는 cron 에서 이 스크립트를 1시간마다 호출하면
+    # 시간 단위 자동 매매가 된다.
+    run_hourly_trading()
 
 
