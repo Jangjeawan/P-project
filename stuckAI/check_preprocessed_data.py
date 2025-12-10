@@ -87,3 +87,6 @@ print("  - 비율: HL_Ratio, CO_Ratio")
 print("\n모든 특성이 0-1 범위로 정규화되었습니다.")
 
 
+
+
+

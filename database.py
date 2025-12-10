@@ -2,7 +2,18 @@
 PostgreSQL 데이터베이스 스키마 및 연결 관리
 """
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, BigInteger
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    DateTime,
+    BigInteger,
+    Text,
+    Boolean,
+    func,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -91,6 +102,65 @@ class StockPriceProcessed(Base):
     
     def __repr__(self):
         return f"<StockPriceProcessed(stock_name='{self.stock_name}', datetime='{self.datetime}')>"
+
+
+class TradeOrder(Base):
+    """KIS 주문 로그"""
+
+    __tablename__ = "trade_orders"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    stock_code = Column(String(16), nullable=False, index=True)
+    stock_name = Column(String(100))
+    side = Column(String(4), nullable=False)  # BUY / SELL
+    quantity = Column(Integer, nullable=False)
+    order_price = Column(Float)
+    order_amount = Column(Float)
+    status = Column(String(20), nullable=False)  # REQUESTED / FILLED / REJECTED
+    raw_response = Column(Text)  # KIS 응답 전체 JSON 문자열
+
+
+class AccountSnapshot(Base):
+    """계좌 스냅샷 (잔고/평가금액/손익 요약)"""
+
+    __tablename__ = "account_snapshots"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    total_value = Column(Float)  # 총 평가금액
+    cash = Column(Float)  # 예수금
+    total_buy_amount = Column(Float)  # 총 매입금액
+    total_eval_amount = Column(Float)  # 총 평가금액 (주식 부분)
+    total_pnl = Column(Float)  # 총 평가손익
+    raw_response = Column(Text)  # 원본 KIS JSON
+
+
+class RiskSetting(Base):
+    """종목/글로벌 리스크 및 포지션 한도 설정"""
+
+    __tablename__ = "risk_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_code = Column(String(16), unique=True, index=True)  # 종목코드, "ALL" 은 전체 공통 설정
+    max_position_shares = Column(Integer, nullable=True)  # 종목별 최대 보유 수량
+    max_weight_pct = Column(Float, nullable=True)  # 종목 비중 상한 (0.0~1.0)
+    max_daily_buy_amount = Column(Float, nullable=True)  # 일간 최대 순매수 금액
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AutoTradeRun(Base):
+    """자동매매 실행 로그"""
+
+    __tablename__ = "auto_trade_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    returncode = Column(Integer, nullable=False)
+    stdout = Column(Text)
+    stderr = Column(Text)
 
 
 class DatabaseManager:
