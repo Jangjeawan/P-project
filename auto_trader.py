@@ -28,7 +28,7 @@ import pandas as pd
 from stable_baselines3 import SAC
 
 from kis_broker import KISBroker
-from trading_api import check_risk_limit, MAX_POSITION_SHARES
+from trading_api import check_risk_limit
 
 
 @dataclass

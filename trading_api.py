@@ -353,10 +353,41 @@ def signup_page():
       align-items: center;
       justify-content: center;
     }
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 18px;
+      box-sizing: border-box;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      background: rgba(15,23,42,0.95);
+      border-bottom: 1px solid #1f2937;
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .nav-btn {
+      background: #020617;
+      color: #e5e7eb;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      padding: 4px 9px;
+      font-size: 12px;
+      cursor: pointer;
+    }
     .container {
       width: 100%;
       max-width: 420px;
-      padding: 24px;
+      padding: 72px 24px 24px;
       box-sizing: border-box;
     }
     .card {
@@ -450,6 +481,14 @@ def signup_page():
   </style>
 </head>
 <body>
+  <header>
+    <div style="font-weight:600;">stuckAI</div>
+    <div class="nav-right" id="nav-loggedin-signup" style="display:none;">
+      <button class="nav-btn" onclick="window.location.href='/'">홈</button>
+      <button class="nav-btn" onclick="window.location.href='/dashboard'">마이페이지</button>
+      <button class="nav-btn" onclick="logoutAndGoLogin()">로그아웃</button>
+    </div>
+  </header>
   <div class="container">
     <div class="card">
       <div class="title">회원가입</div>
@@ -478,6 +517,27 @@ def signup_page():
   </div>
 
   <script>
+    function logoutAndGoLogin() {
+      try {
+        window.localStorage.removeItem("stuckai_token");
+        window.localStorage.removeItem("stuckai_name");
+      } catch (e) {}
+      window.location.href = "/login-page";
+    }
+
+    (function initNav() {
+      try {
+        const token = window.localStorage.getItem("stuckai_token");
+        const nav = document.getElementById("nav-loggedin-signup");
+        if (!nav) return;
+        if (token) {
+          nav.style.display = "flex";
+        } else {
+          nav.style.display = "none";
+        }
+      } catch (e) {}
+    })();
+
     const signupForm = document.getElementById("signup-form");
     const signupBtn = document.getElementById("signup-btn");
     const signupStatus = document.getElementById("signup-status");
@@ -552,10 +612,41 @@ def login_page():
       align-items: center;
       justify-content: center;
     }
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 18px;
+      box-sizing: border-box;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      background: rgba(15,23,42,0.95);
+      border-bottom: 1px solid #1f2937;
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .nav-btn {
+      background: #020617;
+      color: #e5e7eb;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      padding: 4px 9px;
+      font-size: 12px;
+      cursor: pointer;
+    }
     .container {
       width: 100%;
       max-width: 420px;
-      padding: 24px;
+      padding: 72px 24px 24px;
       box-sizing: border-box;
     }
     .card {
@@ -664,6 +755,14 @@ def login_page():
   </style>
 </head>
 <body>
+  <header>
+    <div style="font-weight:600;">stuckAI</div>
+    <div class="nav-right" id="nav-loggedin-login" style="display:none;">
+      <button class="nav-btn" onclick="window.location.href='/'">홈</button>
+      <button class="nav-btn" onclick="window.location.href='/dashboard'">마이페이지</button>
+      <button class="nav-btn" onclick="logoutAndGoLogin()">로그아웃</button>
+    </div>
+  </header>
   <div class="container">
     <div class="card">
       <div class="title">로그인</div>
@@ -689,6 +788,14 @@ def login_page():
   </div>
 
   <script>
+    function logoutAndGoLogin() {
+      try {
+        window.localStorage.removeItem("stuckai_token");
+        window.localStorage.removeItem("stuckai_name");
+      } catch (e) {}
+      window.location.href = "/login-page";
+    }
+
     function getToken() {
       try {
         return window.localStorage.getItem("stuckai_token") || "";
@@ -709,10 +816,13 @@ def login_page():
     function updateUserInfoUI() {
       const name = window.localStorage.getItem("stuckai_name");
       const info = document.getElementById("login-user-info");
+       const nav = document.getElementById("nav-loggedin-login");
       if (name) {
         info.textContent = "현재 로그인: " + name;
+        if (nav) nav.style.display = "flex";
       } else {
         info.textContent = "현재 로그인: 없음";
+        if (nav) nav.style.display = "none";
       }
     }
 
@@ -1660,11 +1770,17 @@ def home():
           <div class="subtitle">SAC 강화학습 + KIS OpenAPI 기반 자동 매매 데모 서비스입니다.</div>
         </div>
         <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+          <div id="nav-loggedin-home" style="display:none; gap:8px; margin-bottom:2px;">
+            <button class="btn-outline" onclick="window.location.href='/'">홈</button>
+            <button class="btn-outline" onclick="window.location.href='/dashboard'">마이페이지</button>
+            <button class="btn-outline" onclick="logoutAndGoLogin()">로그아웃</button>
+          </div>
           <div class="chip">로컬 개발용</div>
-          <div style="display:flex; gap:8px;">
+          <div id="auth-buttons-home" style="display:flex; gap:8px; margin-top:4px;">
             <button class="btn-outline" onclick="window.location.href='/login-page'">로그인</button>
             <button class="btn-main" onclick="window.location.href='/signup-page'">회원가입</button>
           </div>
+          <div id="user-info" class="user" style="margin-top:4px;">현재 로그인: 없음</div>
         </div>
       </div>
 
@@ -1729,15 +1845,35 @@ def home():
   </div>
 
   <script>
+    function logoutAndGoLogin() {
+      try {
+        window.localStorage.removeItem("stuckai_token");
+        window.localStorage.removeItem("stuckai_name");
+      } catch (e) {}
+      window.location.href = "/login-page";
+    }
+
     function updateUserInfo() {
       try {
         const name = window.localStorage.getItem("stuckai_name");
         const el = document.getElementById("user-info");
-        if (!el) return;
-        if (name) {
-          el.textContent = "현재 로그인: " + name;
-        } else {
-          el.textContent = "현재 로그인: 없음";
+        const nav = document.getElementById("nav-loggedin-home");
+        const auth = document.getElementById("auth-buttons-home");
+        if (el) {
+          if (name) {
+            el.textContent = "현재 로그인: " + name;
+          } else {
+            el.textContent = "현재 로그인: 없음";
+          }
+        }
+        if (nav && auth) {
+          if (name) {
+            nav.style.display = "flex";
+            auth.style.display = "none";
+          } else {
+            nav.style.display = "none";
+            auth.style.display = "flex";
+          }
         }
       } catch (e) {}
     }
@@ -1847,6 +1983,17 @@ def dashboard():
     </div>
     <div class="row">
       <span class="small">백엔드: FastAPI · 브로커: KIS</span>
+      <div class="row" id="nav-loggedin-dashboard" style="gap:8px;">
+        <button class="small" style="background:#111827; color:#e5e7eb; border-radius:999px; border:1px solid #374151; padding:4px 8px; cursor:pointer;" onclick="window.location.href='/'">
+          홈
+        </button>
+        <button class="small" style="background:#111827; color:#e5e7eb; border-radius:999px; border:1px solid #374151; padding:4px 8px; cursor:pointer;" onclick="window.location.href='/dashboard'">
+          마이페이지
+        </button>
+        <button class="small" style="background:#7f1d1d; color:#fee2e2; border-radius:999px; border:1px solid #b91c1c; padding:4px 8px; cursor:pointer;" onclick="logoutAndGoLogin()">
+          로그아웃
+        </button>
+      </div>
     </div>
   </header>
   <main>
@@ -1990,6 +2137,14 @@ def dashboard():
       }
     })();
 
+    function logoutAndGoLogin() {
+      try {
+        window.localStorage.removeItem("stuckai_token");
+        window.localStorage.removeItem("stuckai_name");
+      } catch (e) {}
+      window.location.href = "/login-page";
+    }
+
     async function fetchJson(url, options) {
       const res = await fetch(url, options);
       const text = await res.text();
@@ -2037,6 +2192,28 @@ def dashboard():
       const summaryArr = Array.isArray(raw.output2) ? raw.output2 : [];
       const summary = summaryArr[0] || {};
 
+      // 항상 보여주고 싶은 주요 종목들 (보유가 없어도 0으로 표시)
+      const coreStocks = [
+        { code: "005930", name: "삼성전자" },
+        { code: "035420", name: "네이버" },
+        { code: "005380", name: "현대차" },
+      ];
+      if (Array.isArray(holdings)) {
+        for (const core of coreStocks) {
+          const exists = holdings.some((h) => h.pdno === core.code);
+          if (!exists) {
+            holdings.push({
+              pdno: core.code,
+              prdt_name: core.name,
+              hldg_qty: "0",
+              ord_psbl_qty: "0",
+              pchs_avg_pric: "-",
+              evlu_pfls_amt: "0",
+            });
+          }
+        }
+      }
+
       // 요약 영역: 총 보유수량, 총 매입금액, 평가금액, 손익
       let totalQty = 0;
       let totalBuyAmt = 0;
@@ -2079,11 +2256,6 @@ def dashboard():
         balanceSummary.textContent = parts.join(" · ");
       }
 
-      if (!holdings.length) {
-        balanceTable.innerHTML = "<div class='small'>보유 종목이 없습니다.</div>";
-        return;
-      }
-
       // 보유 종목 테이블
       const columns = [
         { key: "pdno", label: "종목코드" },
@@ -2104,7 +2276,12 @@ def dashboard():
       for (const row of holdings) {
         html += "<tr>";
         for (const col of columns) {
-          const v = row[col.key] != null ? row[col.key] : "";
+          let v = row[col.key] != null ? row[col.key] : "";
+          // 거래가 없어서 값이 비어 있을 때도 보유수량/매도가능은 0으로 표시
+          if (col.key === "hldg_qty" || col.key === "ord_psbl_qty") {
+            const n = Number(v || 0);
+            v = Number.isNaN(n) ? "0" : String(n);
+          }
           html += `<td style="padding:4px 6px; border-bottom:1px solid #111827;">${v}</td>`;
         }
         html += "</tr>";
