@@ -125,8 +125,17 @@ class UserBrokerConfig(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
-    account_no = Column(String(32), nullable=False)  # 예: "12345678"
+    # KIS 앱 인증 정보 (유저별로 각자 발급받은 값)
+    kis_app_key = Column(String(128), nullable=True)     # KIS_APP_KEY
+    kis_app_secret = Column(String(128), nullable=True)  # KIS_APP_SECRET
+
+    # 계좌 식별자
+    account_no = Column(String(32), nullable=False)   # 예: "12345678"
     account_code = Column(String(8), nullable=False)  # 예: "01"
+
+    # 모의/실거래 모드 플래그 (False = 모의, True = 실전)
+    real_mode = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

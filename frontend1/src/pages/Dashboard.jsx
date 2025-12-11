@@ -10,6 +10,11 @@ export default function Dashboard() {
   const [productCode, setProductCode] = useState("");
   const [savedAccount, setSavedAccount] = useState(null);
 
+  // KIS 앱키/시크릿 + 모드
+  const [kisAppKey, setKisAppKey] = useState("");
+  const [kisAppSecret, setKisAppSecret] = useState("");
+  const [realMode, setRealMode] = useState(false);
+
   const [orderStock, setOrderStock] = useState("");
   const [orderQty, setOrderQty] = useState(1);
   const [orderSide, setOrderSide] = useState("BUY");
@@ -55,7 +60,12 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem("stuckai_token");
       const res = await api.get(`/me/account?token=${token}`);
-      if (res.data?.has_config) setSavedAccount(res.data);
+      if (res.data?.has_config) {
+        setSavedAccount(res.data);
+        if (typeof res.data.real_mode === "boolean") {
+          setRealMode(res.data.real_mode);
+        }
+      }
     } catch (_) {}
   };
 
@@ -72,6 +82,9 @@ export default function Dashboard() {
       const res = await api.put(`/me/account?token=${token}`, {
         account_no: accountNo,
         account_code: productCode,
+        kis_app_key: kisAppKey,
+        kis_app_secret: kisAppSecret,
+        real_mode: realMode,
       });
       setSavedAccount(res.data);
       alert("계좌 설정 저장됨");
@@ -289,14 +302,38 @@ export default function Dashboard() {
               onChange={(e) => setProductCode(e.target.value)}
             />
 
+            <input
+              placeholder="KIS 앱키"
+              value={kisAppKey}
+              onChange={(e) => setKisAppKey(e.target.value)}
+            />
+
+            <input
+              placeholder="KIS 앱시크릿"
+              type="password"
+              value={kisAppSecret}
+              onChange={(e) => setKisAppSecret(e.target.value)}
+            />
+
+            <label className="dash-small">
+              <input
+                type="checkbox"
+                checked={realMode}
+                onChange={(e) => setRealMode(e.target.checked)}
+              />
+              &nbsp;실거래 모드 (체크 시 실계좌 사용)
+            </label>
+
             <button onClick={saveAccount}>저장</button>
           </div>
 
           {savedAccount && (
-  <p className="dash-small">
-    저장된 계좌: {savedAccount.account_no_masked} / {savedAccount.account_code}
-  </p>
-)}
+            <p className="dash-small">
+              저장된 계좌: {savedAccount.account_no_masked} /{" "}
+              {savedAccount.account_code} (
+              {savedAccount.real_mode ? "실거래" : "모의투자"})
+            </p>
+          )}
         </section>
 
         {/* ----------------------------- */}

@@ -131,6 +131,7 @@ def run_hourly_trading():
             continue
 
         # env 없이도 predict 는 가능하므로 env=None 으로 로드
+        # (학습 시와 동일한 설정으로 모델을 로드한다)
         model = SAC.load(stock.model_path)
 
         try:

@@ -347,6 +347,16 @@ class BrokerConfigIn(BaseModel):
 
     account_no: str = Field(..., description="KIS 계좌번호 (앞 8자리 또는 전체 문자열)")
     account_code: str = Field(..., description="상품코드 (보통 2자리, 예: '01')")
+    # 앱키/시크릿은 선택값: 없으면 공용(.env) 값 사용
+    kis_app_key: Optional[str] = Field(
+        None, description="KIS 앱키 (각 사용자별 발급, 미입력 시 .env 공용키 사용)"
+    )
+    kis_app_secret: Optional[str] = Field(
+        None, description="KIS 앱시크릿 (각 사용자별 발급, 미입력 시 .env 공용시크릿 사용)"
+    )
+    real_mode: bool = Field(
+        False, description="실거래 여부 (False: 모의투자, True: 실전계좌)"
+    )
 
 
 class BrokerConfigOut(BaseModel):
@@ -355,6 +365,7 @@ class BrokerConfigOut(BaseModel):
     has_config: bool
     account_no_masked: Optional[str] = None
     account_code: Optional[str] = None
+    real_mode: Optional[bool] = None
 
 
 def _mask_account_no(account_no: str) -> str:
@@ -389,6 +400,74 @@ def _get_user_from_token(token: str) -> User:
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다.")
     return user
+
+
+def _get_user_from_token_or_header(
+    token: Optional[str], authorization: Optional[str]
+) -> Optional[User]:
+    """
+    쿼리 파라미터 token 또는 Authorization: Bearer ... 헤더에서
+    JWT 를 추출해 User 를 조회한다.
+
+    - 둘 다 없으면 None 반환 (비로그인/시스템 호출)
+    """
+    if token:
+        return _get_user_from_token(token)
+
+    if authorization and authorization.lower().startswith("bearer "):
+        jwt_token = authorization.split(" ", 1)[1].strip()
+        if jwt_token:
+            return _get_user_from_token(jwt_token)
+
+    return None
+
+
+def _build_broker_for_user(user: User) -> KISBroker:
+    """
+    주어진 사용자에 대해 UserBrokerConfig 를 조회하고,
+    해당 설정(app_key/secret, 계좌번호, 모드)을 사용해 KISBroker 인스턴스를 생성한다.
+
+    - 설정이 없거나 불완전하면 400 에러를 발생시킨다.
+    """
+    db = get_db()
+    session = db.get_session()
+    try:
+        cfg = (
+            session.query(UserBrokerConfig)
+            .filter(UserBrokerConfig.user_id == user.id)
+            .first()
+        )
+    finally:
+        session.close()
+
+    # 계좌번호/상품코드는 반드시 있어야 한다.
+    if (
+        not cfg
+        or not cfg.account_no
+        or not cfg.account_code
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="먼저 '내 KIS 계좌 설정'에서 계좌번호와 상품코드를 등록해주세요.",
+        )
+
+    # TR ID 설정은 공통 .env 값을 재사용하고,
+    # 앱키/시크릿/계좌 정보는 (사용자별 설정 > .env 기본값) 순서로 사용한다.
+    base_cfg = KISConfig.from_env()
+    app_key = cfg.kis_app_key or base_cfg.app_key
+    app_secret = cfg.kis_app_secret or base_cfg.app_secret
+
+    user_cfg = KISConfig(
+        app_key=app_key,
+        app_secret=app_secret,
+        account_no=cfg.account_no,
+        account_code=cfg.account_code,
+        real_mode=cfg.real_mode,
+        tr_id_order_cash_buy=base_cfg.tr_id_order_cash_buy,
+        tr_id_order_cash_sell=base_cfg.tr_id_order_cash_sell,
+        tr_id_inquire_balance=base_cfg.tr_id_inquire_balance,
+    )
+    return KISBroker(user_cfg)
 
 
 @app.get("/signup-page", response_class=HTMLResponse)
@@ -1449,12 +1528,18 @@ def get_my_broker_config(token: str):
         session.close()
 
     if not cfg:
-        return BrokerConfigOut(has_config=False, account_no_masked=None, account_code=None)
+        return BrokerConfigOut(
+            has_config=False,
+            account_no_masked=None,
+            account_code=None,
+            real_mode=None,
+        )
 
     return BrokerConfigOut(
         has_config=True,
         account_no_masked=_mask_account_no(cfg.account_no),
         account_code=cfg.account_code,
+        real_mode=cfg.real_mode,
     )
 
 
@@ -1469,8 +1554,16 @@ def upsert_my_broker_config(token: str, body: BrokerConfigIn):
 
     account_no = body.account_no.strip()
     account_code = body.account_code.strip()
+    kis_app_key = (body.kis_app_key or "").strip()
+    kis_app_secret = (body.kis_app_secret or "").strip()
+    real_mode = bool(body.real_mode)
+
+    # 계좌번호/상품코드는 필수, 앱키/시크릿은 선택
     if not account_no or not account_code:
-        raise HTTPException(status_code=400, detail="계좌번호와 상품코드는 필수입니다.")
+        raise HTTPException(
+            status_code=400,
+            detail="계좌번호와 상품코드는 필수입니다.",
+        )
 
     db = get_db()
     session = db.get_session()
@@ -1483,12 +1576,18 @@ def upsert_my_broker_config(token: str, body: BrokerConfigIn):
         if cfg is None:
             cfg = UserBrokerConfig(
                 user_id=user.id,
+                kis_app_key=kis_app_key or None,
+                kis_app_secret=kis_app_secret or None,
                 account_no=account_no,
                 account_code=account_code,
+                real_mode=real_mode,
             )
         else:
+            cfg.kis_app_key = kis_app_key or None
+            cfg.kis_app_secret = kis_app_secret or None
             cfg.account_no = account_no
             cfg.account_code = account_code
+            cfg.real_mode = real_mode
 
         session.add(cfg)
         session.commit()
@@ -1503,6 +1602,7 @@ def upsert_my_broker_config(token: str, body: BrokerConfigIn):
         has_config=True,
         account_no_masked=_mask_account_no(cfg.account_no),
         account_code=cfg.account_code,
+        real_mode=cfg.real_mode,
     )
 
 
@@ -2822,6 +2922,9 @@ def place_market_order(
     token: Optional[str] = Query(
         default=None, description="로그인 토큰 (사용자별 계좌로 주문 시 사용)"
     ),
+    authorization: Optional[str] = Header(
+        default=None, description="Bearer 토큰 (React 프론트엔드용)"
+    ),
 ):
     """
     단순 시장가 주문 엔드포인트.
@@ -2833,38 +2936,22 @@ def place_market_order(
 
     주문 결과는 `trade_orders` 테이블에 로그로 저장된다.
     """
-    broker = get_broker()
     db = get_db()
 
-    account_no_override: Optional[str] = None
-    account_code_override: Optional[str] = None
-
-    if token:
-        # 사용자별 계좌 기반 주문
-        user = _get_user_from_token(token)
-        session = db.get_session()
-        try:
-            cfg = (
-                session.query(UserBrokerConfig)
-                .filter(UserBrokerConfig.user_id == user.id)
-                .first()
-            )
-        finally:
-            session.close()
-
-        if not cfg:
-            raise HTTPException(
-                status_code=400,
-                detail="주문 전 먼저 '내 KIS 계좌 설정'에서 계좌번호를 등록해주세요.",
-            )
-
-        account_no_override = cfg.account_no
-        account_code_override = cfg.account_code
+    # 1) 로그인 유저가 있으면, 유저별 브로커 사용
+    user = _get_user_from_token_or_header(token, authorization)
+    if user:
+        broker = _build_broker_for_user(user)
+        account_no_override: Optional[str] = None
+        account_code_override: Optional[str] = None
     else:
-        # 간단한 API 키 인증 (옵션, 기존 동작 유지)
+        # 2) 시스템/전략 엔진 모드: token 없이 API_KEY 헤더(X-API-Key)를 사용하는 기존 방식.
         expected_key = os.getenv("API_KEY")
         if expected_key and x_api_key != expected_key:
             raise HTTPException(status_code=401, detail="유효하지 않은 API Key 입니다.")
+        broker = get_broker()
+        account_no_override = None
+        account_code_override = None
 
     side = req.side.upper()
     if side not in ("BUY", "SELL"):
@@ -2937,47 +3024,32 @@ def get_account_balance(
     token: Optional[str] = Query(
         default=None, description="로그인 토큰 (사용자별 계좌로 조회할 때 사용)"
     ),
+    authorization: Optional[str] = Header(
+        default=None, description="Bearer 토큰 (React 프론트엔드용)"
+    ),
 ):
     """
     KIS 계좌 잔고/보유 종목 조회.
 
     조회 결과는 `account_snapshots` 테이블에 요약 형태로 저장된다.
     """
-    broker = get_broker()
     db = get_db()
 
-    account_no_override: Optional[str] = None
-    account_code_override: Optional[str] = None
-
-    # 토큰이 있으면 사용자별 계좌 설정을 우선 사용
-    if token:
-        user = _get_user_from_token(token)
-        session = db.get_session()
+    # 1) 로그인 유저가 있으면, 유저별 KIS 설정으로 브로커 생성
+    user = _get_user_from_token_or_header(token, authorization)
+    if user:
+        broker = _build_broker_for_user(user)
         try:
-            cfg = (
-                session.query(UserBrokerConfig)
-                .filter(UserBrokerConfig.user_id == user.id)
-                .first()
-            )
-        finally:
-            session.close()
-
-        if not cfg:
-            raise HTTPException(
-                status_code=400,
-                detail="계좌 조회 전 먼저 '내 KIS 계좌 설정'에서 계좌번호를 등록해주세요.",
-            )
-
-        account_no_override = cfg.account_no
-        account_code_override = cfg.account_code
-
-    try:
-        bal = broker.get_balance(
-            account_no_override=account_no_override,
-            account_code_override=account_code_override,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"KIS 잔고 조회 실패: {e}")
+            bal = broker.get_balance()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"KIS 잔고 조회 실패: {e}")
+    else:
+        # 2) 비로그인/시스템 호출은 기존 .env 기반 기본 브로커 사용
+        broker = get_broker()
+        try:
+            bal = broker.get_balance()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"KIS 잔고 조회 실패: {e}")
 
     # 스냅샷 저장
     raw = bal if isinstance(bal, dict) else {}
