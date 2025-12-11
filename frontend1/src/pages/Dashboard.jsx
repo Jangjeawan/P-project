@@ -34,19 +34,20 @@ export default function Dashboard() {
   // 1) 계좌 잔고 조회
   // --------------------------
   const fetchBalance = async () => {
-    try {
-      const res = await api.get("/accounts/balance");
-      setBalance(res.data);
+  try {
+    const res = await api.get("/accounts/balance");
 
-      const holdings = Array.isArray(res.data.output1) ? res.data.output1 : [];
-      const summary = Array.isArray(res.data.output2) ? res.data.output2[0] : {};
+    // 🔥 실제 데이터는 res.data.raw 내부에 있음
+    const raw = res.data.raw || {};
 
-      setBalanceParsed({ holdings, summary });
-    } catch (err) {
-      alert("잔고 조회 실패");
-    }
-  };
+    const holdings = Array.isArray(raw.output1) ? raw.output1 : [];
+    const summary = Array.isArray(raw.output2) ? raw.output2[0] : {};
 
+    setBalanceParsed({ holdings, summary });
+  } catch (err) {
+    alert("잔고 조회 실패");
+  }
+};
   // --------------------------
   // 2) 계좌 설정 로드
   // --------------------------
