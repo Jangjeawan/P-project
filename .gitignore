@@ -50,3 +50,5 @@ models/checkpoints/*.keras
 
 # TensorFlow
 tensorboard/
+
+node_modules/
