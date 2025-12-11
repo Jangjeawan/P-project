@@ -115,21 +115,27 @@ export default function Dashboard() {
   // 6) 리스크 설정 저장
   // --------------------------
   const saveRisk = async () => {
-    try {
-      await api.post("/risk/settings", {
-        stock_code: riskStock,
-        max_quantity: riskMaxQty ? Number(riskMaxQty) : null,
-        max_percent: riskMaxPct ? Number(riskMaxPct) : null,
-        max_daily_buy_amount: riskMaxDailyBuy ? Number(riskMaxDailyBuy) : null,
-        active: riskActive === "on",
-        api_key: riskKey,
-      });
+  try {
+    const stock = riskStock || "ALL"; // 종목코드 없으면 ALL
+    
+    const payload = {
+      max_position_shares: riskMaxQty ? Number(riskMaxQty) : null,
+      max_weight_pct: riskMaxPct ? Number(riskMaxPct) : null,
+      max_daily_buy_amount: riskMaxDailyBuy ? Number(riskMaxDailyBuy) : null,
+      active: riskActive === "on",
+    };
 
-      alert("리스크 규칙 저장됨");
-    } catch (err) {
-      alert("리스크 저장 실패");
-    }
-  };
+    const headers = {};
+    if (riskKey) headers["X-API-Key"] = riskKey;
+
+    await api.put(`/settings/risk/${stock}`, payload, { headers });
+
+    alert("리스크 규칙 저장됨");
+  } catch (err) {
+    console.error(err);
+    alert("리스크 저장 실패");
+  }
+};
 
   // --------------------------
   // 6-2) 리스크 조회
@@ -286,11 +292,10 @@ export default function Dashboard() {
           </div>
 
           {savedAccount && (
-            <p className="dash-small">
-              저장된 계좌: {savedAccount.account_no} /{" "}
-              {savedAccount.product_code}
-            </p>
-          )}
+  <p className="dash-small">
+    저장된 계좌: {savedAccount.account_no_masked} / {savedAccount.account_code}
+  </p>
+)}
         </section>
 
         {/* ----------------------------- */}
