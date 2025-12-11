@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
@@ -1823,8 +1824,9 @@ def api_trade_auto(payload: dict):
         raise HTTPException(status_code=500, detail=f"auto_trader 스크립트를 찾을 수 없습니다: {script_path}")
 
     try:
+        # sys.executable을 사용하여 현재 FastAPI가 실행 중인 파이썬(대부분 venv)을 그대로 사용
         proc = subprocess.run(
-            ["python", str(script_path)],
+            [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
             timeout=300,
