@@ -343,17 +343,12 @@ class TokenResponse(BaseModel):
 
 
 class BrokerConfigIn(BaseModel):
-    """로그인한 사용자의 KIS 계좌 설정 입력용"""
+    """로그인한 사용자의 KIS 계좌 설정 입력용 (유저별 완전 분리용)."""
 
     account_no: str = Field(..., description="KIS 계좌번호 (앞 8자리 또는 전체 문자열)")
     account_code: str = Field(..., description="상품코드 (보통 2자리, 예: '01')")
-    # 앱키/시크릿은 선택값: 없으면 공용(.env) 값 사용
-    kis_app_key: Optional[str] = Field(
-        None, description="KIS 앱키 (각 사용자별 발급, 미입력 시 .env 공용키 사용)"
-    )
-    kis_app_secret: Optional[str] = Field(
-        None, description="KIS 앱시크릿 (각 사용자별 발급, 미입력 시 .env 공용시크릿 사용)"
-    )
+    kis_app_key: str = Field(..., description="KIS 앱키 (각 사용자별 발급)")
+    kis_app_secret: str = Field(..., description="KIS 앱시크릿 (각 사용자별 발급)")
     real_mode: bool = Field(
         False, description="실거래 여부 (False: 모의투자, True: 실전계좌)"
     )
@@ -440,26 +435,25 @@ def _build_broker_for_user(user: User) -> KISBroker:
     finally:
         session.close()
 
-    # 계좌번호/상품코드는 반드시 있어야 한다.
+    # 앱키/시크릿 + 계좌번호/상품코드는 반드시 있어야 한다.
     if (
         not cfg
+        or not cfg.kis_app_key
+        or not cfg.kis_app_secret
         or not cfg.account_no
         or not cfg.account_code
     ):
         raise HTTPException(
             status_code=400,
-            detail="먼저 '내 KIS 계좌 설정'에서 계좌번호와 상품코드를 등록해주세요.",
+            detail="먼저 '내 KIS 계좌 설정'에서 앱키/시크릿과 계좌번호를 모두 등록해주세요.",
         )
 
     # TR ID 설정은 공통 .env 값을 재사용하고,
-    # 앱키/시크릿/계좌 정보는 (사용자별 설정 > .env 기본값) 순서로 사용한다.
+    # 앱키/시크릿/계좌 정보는 사용자별 설정을 그대로 사용한다.
     base_cfg = KISConfig.from_env()
-    app_key = cfg.kis_app_key or base_cfg.app_key
-    app_secret = cfg.kis_app_secret or base_cfg.app_secret
-
     user_cfg = KISConfig(
-        app_key=app_key,
-        app_secret=app_secret,
+        app_key=cfg.kis_app_key,
+        app_secret=cfg.kis_app_secret,
         account_no=cfg.account_no,
         account_code=cfg.account_code,
         real_mode=cfg.real_mode,
@@ -1554,15 +1548,15 @@ def upsert_my_broker_config(token: str, body: BrokerConfigIn):
 
     account_no = body.account_no.strip()
     account_code = body.account_code.strip()
-    kis_app_key = (body.kis_app_key or "").strip()
-    kis_app_secret = (body.kis_app_secret or "").strip()
+    kis_app_key = body.kis_app_key.strip()
+    kis_app_secret = body.kis_app_secret.strip()
     real_mode = bool(body.real_mode)
 
-    # 계좌번호/상품코드는 필수, 앱키/시크릿은 선택
-    if not account_no or not account_code:
+    # 계좌번호/상품코드/앱키/시크릿 모두 필수
+    if not account_no or not account_code or not kis_app_key or not kis_app_secret:
         raise HTTPException(
             status_code=400,
-            detail="계좌번호와 상품코드는 필수입니다.",
+            detail="계좌번호, 상품코드, KIS 앱키, 앱시크릿은 모두 필수입니다.",
         )
 
     db = get_db()
@@ -1576,15 +1570,15 @@ def upsert_my_broker_config(token: str, body: BrokerConfigIn):
         if cfg is None:
             cfg = UserBrokerConfig(
                 user_id=user.id,
-                kis_app_key=kis_app_key or None,
-                kis_app_secret=kis_app_secret or None,
+                kis_app_key=kis_app_key,
+                kis_app_secret=kis_app_secret,
                 account_no=account_no,
                 account_code=account_code,
                 real_mode=real_mode,
             )
         else:
-            cfg.kis_app_key = kis_app_key or None
-            cfg.kis_app_secret = kis_app_secret or None
+            cfg.kis_app_key = kis_app_key
+            cfg.kis_app_secret = kis_app_secret
             cfg.account_no = account_no
             cfg.account_code = account_code
             cfg.real_mode = real_mode
@@ -2265,7 +2259,10 @@ def dashboard():
       <h2>
         내 KIS 계좌 설정
       </h2>
-      <div class="subtitle">로그인한 사용자별로 사용할 KIS 계좌번호를 저장합니다. (서버에는 암호화되지 않은 채로만 저장되므로 데모/내부용으로 사용하세요.)</div>
+      <div class="subtitle">
+        로그인한 사용자별로 사용할 KIS 앱키/시크릿 + 계좌번호를 저장합니다.
+        (서버에는 암호화되지 않은 채로 저장되므로 데모/내부용으로만 사용하세요.)
+      </div>
       <div class="grid">
         <div>
           <label for="account-no">계좌번호</label>
@@ -2274,6 +2271,21 @@ def dashboard():
         <div>
           <label for="account-code">상품코드</label>
           <input id="account-code" placeholder="예: 01" />
+        </div>
+        <div>
+          <label for="account-app-key">KIS 앱키</label>
+          <input id="account-app-key" placeholder="본인 KIS APP_KEY" />
+        </div>
+        <div>
+          <label for="account-app-secret">KIS 앱시크릿</label>
+          <input id="account-app-secret" type="password" placeholder="본인 KIS APP_SECRET" />
+        </div>
+        <div>
+          <label for="account-real-mode">실거래 모드</label>
+          <div class="row">
+            <input id="account-real-mode" type="checkbox" />
+            <span class="small">체크 시 실계좌, 해제 시 모의투자</span>
+          </div>
         </div>
         <div>
           <label>&nbsp;</label>
@@ -2453,6 +2465,9 @@ def dashboard():
     const riskTable = document.getElementById("risk-table");
     const accountNoInput = document.getElementById("account-no");
     const accountCodeInput = document.getElementById("account-code");
+    const accountAppKeyInput = document.getElementById("account-app-key");
+    const accountAppSecretInput = document.getElementById("account-app-secret");
+    const accountRealModeInput = document.getElementById("account-real-mode");
     const accountCurrent = document.getElementById("account-current");
     const accountStatus = document.getElementById("account-status");
     const btnSaveAccount = document.getElementById("btn-save-account");
@@ -2475,7 +2490,8 @@ def dashboard():
         }
         const data = res.json;
         if (data.has_config) {
-          accountCurrent.textContent = (data.account_no_masked || "설정됨") + " / " + (data.account_code || "");
+          const modeText = data.real_mode ? "실거래" : "모의투자";
+          accountCurrent.textContent = (data.account_no_masked || "설정됨") + " / " + (data.account_code || "") + " (" + modeText + ")";
         } else {
           accountCurrent.textContent = "없음";
         }
@@ -2496,8 +2512,12 @@ def dashboard():
       }
       const no = (accountNoInput.value || "").trim();
       const code = (accountCodeInput.value || "").trim();
-      if (!no || !code) {
-        accountStatus.textContent = "계좌번호와 상품코드를 모두 입력하세요.";
+      const appKey = (accountAppKeyInput.value || "").trim();
+      const appSecret = (accountAppSecretInput.value || "").trim();
+      const realMode = !!accountRealModeInput.checked;
+
+      if (!no || !code || !appKey || !appSecret) {
+        accountStatus.textContent = "계좌번호, 상품코드, KIS 앱키, 앱시크릿을 모두 입력하세요.";
         accountStatus.className = "status err";
         return;
       }
@@ -2509,7 +2529,13 @@ def dashboard():
         const res = await fetchJson("/me/account?token=" + encodeURIComponent(token), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ account_no: no, account_code: code })
+          body: JSON.stringify({
+            account_no: no,
+            account_code: code,
+            kis_app_key: appKey,
+            kis_app_secret: appSecret,
+            real_mode: realMode
+          })
         });
         if (!res.ok) {
           accountStatus.textContent = "저장 실패: " + (res.json && res.json.detail ? res.json.detail : "오류");
