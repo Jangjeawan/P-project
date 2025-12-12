@@ -27,9 +27,9 @@ import numpy as np
 import pandas as pd
 from stable_baselines3 import SAC
 
-from kis_broker import KISBroker
-from trading_api import check_risk_limit
-from database import DatabaseManager, StockPriceProcessed
+from backend.kis_broker import KISBroker
+from backend.trading_api import check_risk_limit
+from backend.database import DatabaseManager, StockPriceProcessed
 
 
 @dataclass
