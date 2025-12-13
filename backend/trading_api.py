@@ -47,13 +47,15 @@ SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
 # - React 대시보드 토글 + 스케줄러에서 사용하는 글로벌 스위치
 AUTO_TRADE_ENABLED: bool = False
 
-# React 프론트엔드(예: Vite dev 서버) 연동을 위한 CORS 설정
+# React 프론트엔드(예: Vite dev 서버, EC2 에서 호스팅된 프론트) 연동을 위한 CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:4173",
+        # EC2 상의 프론트엔드 (예: Nginx/Vite 를 5000 포트에서 서빙)
+        "http://16.184.2.168:5000",
     ],
     allow_credentials=True,
     allow_methods=["*"],

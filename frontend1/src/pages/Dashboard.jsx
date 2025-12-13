@@ -39,20 +39,27 @@ export default function Dashboard() {
   // 1) 계좌 잔고 조회
   // --------------------------
   const fetchBalance = async () => {
-  try {
-    const res = await api.get("/accounts/balance");
+    try {
+      const res = await api.get("/accounts/balance");
 
-    // 🔥 실제 데이터는 res.data.raw 내부에 있음
-    const raw = res.data.raw || {};
+      // 🔥 실제 데이터는 res.data.raw 내부에 있음
+      const raw = res.data.raw || {};
 
-    const holdings = Array.isArray(raw.output1) ? raw.output1 : [];
-    const summary = Array.isArray(raw.output2) ? raw.output2[0] : {};
+      const holdings = Array.isArray(raw.output1) ? raw.output1 : [];
+      const summary = Array.isArray(raw.output2) ? raw.output2[0] : {};
 
-    setBalanceParsed({ holdings, summary });
-  } catch (err) {
-    alert("잔고 조회 실패");
-  }
-};
+      setBalanceParsed({ holdings, summary });
+    } catch (err) {
+      const detail = err.response?.data?.detail || "";
+      if (typeof detail === "string" && detail.includes("KIS 토큰 발급 실패")) {
+        alert(
+          "KIS 토큰 발급 실패로 계좌 조회에 실패했습니다.\n잠시 후 다시 시도하거나 KIS 설정을 확인해주세요."
+        );
+      } else {
+        alert("잔고 조회 실패");
+      }
+    }
+  };
   // --------------------------
   // 2) 계좌 설정 로드
   // --------------------------
@@ -117,9 +124,15 @@ export default function Dashboard() {
         side: orderSide,
       });
       setOrderResult(res.data);
-      alert("주문 성공");
     } catch (err) {
-      alert("주문 실패");
+      const detail = err.response?.data?.detail || "";
+      if (typeof detail === "string" && detail.includes("KIS 토큰 발급 실패")) {
+        alert(
+          "KIS 토큰 발급 실패로 주문을 처리하지 못했습니다.\n잠시 후 다시 시도해주세요."
+        );
+      } else {
+        alert("주문 실패");
+      }
       setOrderResult(err.response?.data || {});
     }
   };
@@ -188,6 +201,11 @@ export default function Dashboard() {
         { headers: { "X-API-Key": API_KEY } }
       );
       setAutoTradeResult(res.data);
+      // 실행 결과가 화면에 잘 보이지 않는 경우를 대비해 간단 요약도 알림으로 표시
+      const msg =
+        res.data?.message ||
+        `자동매매 실행 완료 (return code: ${res.data?.returncode ?? "알 수 없음"})`;
+      alert(msg);
     } catch (err) {
       alert("자동매매 실패");
     }
