@@ -69,8 +69,21 @@ export default function Dashboard() {
     } catch (_) {}
   };
 
+  // --------------------------
+  // 2-1) 글로벌 자동매매 설정 로드
+  // --------------------------
+  const loadAutoTradeConfig = async () => {
+    try {
+      const res = await api.get("/auto-trade/config");
+      if (typeof res.data.enabled === "boolean") {
+        setAutoTradeEnabled(res.data.enabled);
+      }
+    } catch (_) {}
+  };
+
   useEffect(() => {
     loadAccount();
+    loadAutoTradeConfig();
   }, []);
 
   // --------------------------
@@ -162,7 +175,7 @@ export default function Dashboard() {
   };
 
   // --------------------------
-  // 7) 자동매매 실행
+  // 7) 자동매매 실행 (수동 1회 실행)
   // --------------------------
   const runAutoTrade = async () => {
     if (!autoTradeEnabled) return alert("자동매매 OFF입니다.");
@@ -177,6 +190,25 @@ export default function Dashboard() {
       setAutoTradeResult(res.data);
     } catch (err) {
       alert("자동매매 실패");
+    }
+  };
+
+  // --------------------------
+  // 7-1) 자동매매 ON/OFF 토글 (글로벌)
+  // --------------------------
+  const toggleAutoTrade = async () => {
+    const next = !autoTradeEnabled;
+    setAutoTradeEnabled(next);
+    try {
+      const API_KEY = import.meta.env.VITE_API_KEY;
+      await api.put(
+        "/auto-trade/config",
+        { enabled: next },
+        { headers: { "X-API-Key": API_KEY } }
+      );
+    } catch (err) {
+      setAutoTradeEnabled(!next);
+      alert("자동매매 설정 저장 실패");
     }
   };
 
@@ -346,7 +378,7 @@ export default function Dashboard() {
               <input
                 type="checkbox"
                 checked={autoTradeEnabled}
-                onChange={() => setAutoTradeEnabled(!autoTradeEnabled)}
+                onChange={toggleAutoTrade}
               />
               <span></span>
             </label>
